@@ -188,6 +188,19 @@ typedef enum heif_suberror_code
   // we got a mini box, but could not read it properly
   heif_suberror_Invalid_mini_box = 149,
 
+  // An ISO/IEC 21496-1 gain map was expected (e.g. a 'tmap' derived image
+  // without a matching gain map item, or an 'hdrgm' property with no data)
+  // but the required box/item is missing.
+  heif_suberror_Gain_map_missing = 153,
+
+  // An ISO/IEC 21496-1 gain map metadata block ('hdrgm' box or 'tmap' item
+  // data) is structurally invalid or truncated.
+  heif_suberror_Invalid_gain_map_metadata = 154,
+
+  // An ISO/IEC 21496-1 gain map stores a channel count other than 1 or 3, or
+  // its channel count does not match the gain map image components.
+  heif_suberror_Invalid_gain_map_channel_count = 155,
+
   // Decompressing generic compression or header compression data failed (e.g. bitstream corruption)
   heif_suberror_Decompression_invalid_data = 150,
 

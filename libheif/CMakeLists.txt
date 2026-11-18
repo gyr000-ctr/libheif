@@ -18,6 +18,7 @@ set(libheif_headers
         api/libheif/heif_brands.h
         api/libheif/heif_metadata.h
         api/libheif/heif_aux_images.h
+        api/libheif/heif_gain_map.h
         api/libheif/heif_entity_groups.h
         api/libheif/heif_security.h
         api/libheif/heif_encoding.h
@@ -87,6 +88,7 @@ set(libheif_sources
         api/libheif/heif_brands.cc
         api/libheif/heif_metadata.cc
         api/libheif/heif_aux_images.cc
+        api/libheif/heif_gain_map.cc
         api/libheif/heif_entity_groups.cc
         api/libheif/heif_security.cc
         api/libheif/heif_encoding.cc
@@ -160,6 +162,8 @@ set(libheif_sources
         image-items/overlay.cc
         image-items/iden.h
         image-items/iden.cc
+        image-items/tmap.h
+        image-items/tmap.cc
         image-items/tiled.h
         image-items/tiled.cc
         color-conversion/colorconversion.cc
@@ -338,6 +342,10 @@ endif ()
 target_sources(heif PRIVATE
         mini.h
         mini.cc)
+
+target_sources(heif PRIVATE
+        gainmap.h
+        gainmap.cc)
 
 target_sources(heif PRIVATE
         omaf_boxes.h

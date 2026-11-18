@@ -177,6 +177,7 @@ if (NOT WITH_REDUCED_VISIBILITY)
 endif()
 add_libheif_test(mini_decode)
 add_libheif_test(mini_security_limits)
+add_libheif_test(gainmap_metadata)
 
 if (NOT WITH_REDUCED_VISIBILITY)
     add_libheif_test(omaf_boxes)

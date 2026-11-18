@@ -30,6 +30,7 @@
 
 #include <libheif/heif_metadata.h>
 #include <libheif/heif_aux_images.h>
+#include <libheif/heif_gain_map.h>
 #include <libheif/heif_entity_groups.h>
 #include <libheif/heif_security.h>
 #include <libheif/heif_encoding.h>

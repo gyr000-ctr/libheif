@@ -59,6 +59,7 @@
 #include "image-items/jpeg2000.h"
 #include "image-items/grid.h"
 #include "image-items/overlay.h"
+#include "image-items/tmap.h"
 #include "image-items/tiled.h"
 
 #if WITH_UNCOMPRESSED_CODEC
@@ -565,6 +566,7 @@ static bool item_type_is_image(uint32_t item_type, const std::string& content_ty
           item_type == fourcc("tili") ||
           item_type == fourcc("iden") ||
           item_type == fourcc("iovl") ||
+          item_type == fourcc("tmap") ||
           item_type == fourcc("avc1") ||
           item_type == fourcc("unci") ||
           item_type == fourcc("vvc1") ||
@@ -1419,7 +1421,8 @@ Result<heif_item_id> HeifContext::find_first_coded_image_id(heif_item_id id) con
     uint32_t image_type = m_heif_file->get_item_type_4cc(id);
     if (image_type == fourcc("grid") ||
         image_type == fourcc("iden") ||
-        image_type == fourcc("iovl")) {
+        image_type == fourcc("iovl") ||
+        image_type == fourcc("tmap")) {
       auto iref_box = m_heif_file->get_iref_box();
       if (!iref_box) {
         return Error(heif_error_Invalid_input,
@@ -1454,6 +1457,30 @@ Result<heif_item_id> HeifContext::find_first_coded_image_id(heif_item_id id) con
       return id;
     }
   }
+}
+
+
+std::shared_ptr<ImageItem_tmap> HeifContext::get_tmap_image_for_base(heif_item_id base_id) const
+{
+  auto iref_box = m_heif_file->get_iref_box();
+  if (!iref_box) {
+    return nullptr;
+  }
+
+  for (const auto& pair : m_all_images) {
+    auto tmap = std::dynamic_pointer_cast<ImageItem_tmap>(pair.second);
+    if (!tmap) {
+      continue;
+    }
+    heif_item_id ref_base = 0, ref_gain = 0;
+    if (tmap->get_reference_ids(&ref_base, &ref_gain)) {
+      continue;
+    }
+    if (ref_base == base_id) {
+      return tmap;
+    }
+  }
+  return nullptr;
 }
 
 

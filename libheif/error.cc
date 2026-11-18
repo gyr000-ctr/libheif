@@ -247,6 +247,12 @@ const char* Error::get_error_string(heif_suberror_code err)
       return "No 'icbr' box";
     case heif_suberror_Invalid_mini_box:
       return "Unsupported or invalid 'mini' box";
+    case heif_suberror_Gain_map_missing:
+      return "Required ISO/IEC 21496-1 gain map box or item is missing";
+    case heif_suberror_Invalid_gain_map_metadata:
+      return "Invalid ISO/IEC 21496-1 gain map metadata";
+    case heif_suberror_Invalid_gain_map_channel_count:
+      return "Invalid ISO/IEC 21496-1 gain map channel count";
 
 
       // --- Memory_allocation_error ---

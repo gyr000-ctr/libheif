@@ -62,6 +62,8 @@ public:
   uint32_t get_main_item_data_size() const { return m_main_item_data_size; }
   uint64_t get_alpha_item_data_offset() const { return m_alpha_item_data_offset; }
   uint32_t get_alpha_item_data_size() const { return m_alpha_item_data_size; }
+  uint64_t get_gainmap_item_data_offset() const { return m_gainmap_item_data_offset; }
+  uint32_t get_gainmap_item_data_size() const { return m_gainmap_item_data_size; }
   uint64_t get_exif_item_data_offset() const { return m_exif_item_data_offset; }
   uint32_t get_exif_item_data_size() const { return m_exif_data_size; }
   uint64_t get_xmp_item_data_offset() const { return m_xmp_item_data_offset; }

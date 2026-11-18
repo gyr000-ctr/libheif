@@ -116,6 +116,10 @@ public:
 
   std::shared_ptr<const ImageItem> get_primary_image(bool return_error_image) const;
 
+  // Return the ISO/IEC 21496-1 'tmap' derived image whose 'dimg' reference
+  // contains the given base image id, or nullptr if none exists.
+  std::shared_ptr<class ImageItem_tmap> get_tmap_image_for_base(heif_item_id base_id) const;
+
   bool is_image(heif_item_id ID) const;
 
   bool has_alpha(heif_item_id ID) const;

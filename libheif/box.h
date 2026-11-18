@@ -30,6 +30,8 @@
 #include <cinttypes>
 #include <cstddef>
 
+#include "gainmap.h"
+
 #include <utility>
 #include <vector>
 #include <unordered_map>
@@ -1549,6 +1551,46 @@ protected:
 
 private:
   uint32_t m_diffuse_white_luminance = 0;
+};
+
+
+// ISO/IEC 21496-1 GainMapMetadata box. A plain Box whose payload is the
+// GainMapMetadata syntax. Typically stored in 'ipco' as a (non-essential)
+// property of the gain map image item.
+class Box_hdrgm : public Box
+{
+public:
+  Box_hdrgm()
+  {
+    set_short_type(fourcc("hdrgm"));
+  }
+
+  const GainMapMetadata& get_metadata() const { return m_metadata; }
+
+  GainMapMetadata& get_mut_metadata() { return m_metadata; }
+
+  void set_metadata(const GainMapMetadata& metadata) { m_metadata = metadata; }
+
+  // Parse a raw GainMapMetadata payload without a box header (e.g. the blob
+  // stored inside a 'mini' box or a 'tmap' item's data after its version byte).
+  Error parse_payload(const std::vector<uint8_t>& payload);
+
+  void dump(std::ostream&, Indent&, bool full_log) const override;
+
+  const char* debug_box_name() const override { return "Gain Map Metadata"; }
+
+  Error write(StreamWriter& writer) const override;
+
+  [[nodiscard]] parse_error_fatality get_parse_error_fatality() const override
+  {
+    return parse_error_fatality::optional;
+  }
+
+protected:
+  Error parse(BitstreamRange& range, const heif_security_limits*) override;
+
+private:
+  GainMapMetadata m_metadata;
 };
 
 

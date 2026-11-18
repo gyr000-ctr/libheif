@@ -1370,6 +1370,24 @@ Error Box_mini::create_expanded_boxes(class HeifFile* file)
     file->add_infe_box(2, alpha_infe_box);
   }
 
+  // ISO/IEC 21496-1 gain map: a hidden auxiliary image item (id 4) holding
+  // the coded gain map, and a 'tmap' derived image item (id 3) binding the
+  // primary image and the gain map.
+  if (m_gainmap_flag) {
+    std::shared_ptr<Box_infe> gainmap_infe_box = std::make_shared<Box_infe>();
+    gainmap_infe_box->set_version(2);
+    gainmap_infe_box->set_flags(1); // hidden item
+    gainmap_infe_box->set_item_ID(4);
+    gainmap_infe_box->set_item_type_4cc(infe_type);
+    file->add_infe_box(4, gainmap_infe_box);
+
+    std::shared_ptr<Box_infe> tmap_infe_box = std::make_shared<Box_infe>();
+    tmap_infe_box->set_version(2);
+    tmap_infe_box->set_item_ID(3);
+    tmap_infe_box->set_item_type_4cc(fourcc("tmap"));
+    file->add_infe_box(3, tmap_infe_box);
+  }
+
   if (get_exif_flag()) {
     std::shared_ptr<Box_infe> exif_infe_box = std::make_shared<Box_infe>();
     exif_infe_box->set_version(2);
@@ -1512,6 +1530,108 @@ Error Box_mini::create_expanded_boxes(class HeifFile* file)
     hdr_ndwt_prop_index = static_cast<uint16_t>(ipco_box->append_child_box(m_ndwt) + 1);
   }
 
+  // --- ISO/IEC 21496-1 gain map item (id 4) and tmap item (id 3) properties ---
+  uint16_t gainmap_codec_prop_index = 0;
+  uint16_t gainmap_ispe_prop_index = 0;
+  uint16_t gainmap_pixi_prop_index = 0;
+  uint16_t gainmap_colr_prop_index = 0;
+  uint16_t gainmap_icc_prop_index = 0;
+  uint16_t gainmap_auxc_prop_index = 0;
+  uint16_t gainmap_hdrgm_prop_index = 0;
+  uint16_t tmap_clli_prop_index = 0;
+  uint16_t tmap_mdcv_prop_index = 0;
+  uint16_t tmap_cclv_prop_index = 0;
+  uint16_t tmap_amve_prop_index = 0;
+  uint16_t tmap_ndwt_prop_index = 0;
+
+  if (m_gainmap_flag) {
+    // Codec config for the gain map image.
+    if (get_gainmap_item_codec_config().size() != 0) {
+      uint32_t gain_config_type;
+      if (infe_type == fourcc("av01")) {
+        gain_config_type = fourcc("av1C");
+      } else if (infe_type == fourcc("hvc1")) {
+        gain_config_type = fourcc("hvcC");
+      } else {
+        std::stringstream sstr;
+        sstr << "Minimised file gain map requires infe support for "
+             << fourcc_to_string(infe_type) << " but this is not yet supported.";
+        return Error(heif_error_Unsupported_filetype,
+                     heif_suberror_Unspecified,
+                     sstr.str());
+      }
+      std::shared_ptr<Box> gain_codec_prop;
+      if (auto err = parse_codec_config_box(get_gainmap_item_codec_config(),
+                                            gain_config_type, &gain_codec_prop,
+                                            file->get_security_limits())) {
+        return err;
+      }
+      gainmap_codec_prop_index = static_cast<uint16_t>(ipco_box->append_child_box(gain_codec_prop) + 1);
+    }
+
+    auto gain_ispe = std::make_shared<Box_ispe>();
+    gain_ispe->set_size(m_gainmap_width, m_gainmap_height);
+    gainmap_ispe_prop_index = static_cast<uint16_t>(ipco_box->append_child_box(gain_ispe) + 1);
+
+    auto gain_pixi = std::make_shared<Box_pixi>();
+    gain_pixi->set_version(0);
+    // chroma_subsampling value 3 signals a monochrome (single-component) gain
+    // map; every other value is a three-component map.
+    const bool gainmap_is_monochrome = (m_gainmap_chroma_subsampling == 3);
+    int gain_component_count = gainmap_is_monochrome ? 1 : 3;
+    for (int c = 0; c < gain_component_count; c++) {
+      gain_pixi->add_channel_bits(m_gainmap_bit_depth);
+    }
+    gainmap_pixi_prop_index = static_cast<uint16_t>(ipco_box->append_child_box(gain_pixi) + 1);
+
+    auto gain_colr = std::make_shared<Box_colr>();
+    nclx_profile gainColorProfile;
+    gainColorProfile.set_colour_primaries(m_tmap_colour_primaries);
+    gainColorProfile.set_transfer_characteristics(m_tmap_transfer_characteristics);
+    gainColorProfile.set_matrix_coefficients(m_gainmap_matrix_coefficients);
+    gainColorProfile.set_full_range_flag(m_gainmap_full_range_flag);
+    auto gain_nclx = std::make_shared<color_profile_nclx>(gainColorProfile);
+    gain_colr->set_color_profile(gain_nclx);
+    gainmap_colr_prop_index = static_cast<uint16_t>(ipco_box->append_child_box(gain_colr) + 1);
+
+    if (m_tmap_icc_flag && m_tmap_icc_data.size() != 0) {
+      auto gain_colr_icc = std::make_shared<Box_colr>();
+      auto icc = std::make_shared<color_profile_raw>(fourcc("prof"), m_tmap_icc_data);
+      gain_colr_icc->set_color_profile(icc);
+      gainmap_icc_prop_index = static_cast<uint16_t>(ipco_box->append_child_box(gain_colr_icc) + 1);
+    }
+
+    auto gain_auxC = std::make_shared<Box_auxC>();
+    gain_auxC->set_aux_type(GAIN_MAP_AUX_TYPE_URN);
+    gainmap_auxc_prop_index = static_cast<uint16_t>(ipco_box->append_child_box(gain_auxC) + 1);
+
+    // The 'hdrgm' property wraps the stored ISO/IEC 21496-1 metadata blob.
+    if (m_gainmap_metadata.size() != 0) {
+      auto hdrgm = std::make_shared<Box_hdrgm>();
+      if (Error err = hdrgm->parse_payload(m_gainmap_metadata)) {
+        return err;
+      }
+      gainmap_hdrgm_prop_index = static_cast<uint16_t>(ipco_box->append_child_box(hdrgm) + 1);
+    }
+
+    // Tone-map (alternate rendition) HDR metadata properties.
+    if (m_tmap_clli) {
+      tmap_clli_prop_index = static_cast<uint16_t>(ipco_box->append_child_box(m_tmap_clli) + 1);
+    }
+    if (m_tmap_mdcv) {
+      tmap_mdcv_prop_index = static_cast<uint16_t>(ipco_box->append_child_box(m_tmap_mdcv) + 1);
+    }
+    if (m_tmap_cclv) {
+      tmap_cclv_prop_index = static_cast<uint16_t>(ipco_box->append_child_box(m_tmap_cclv) + 1);
+    }
+    if (m_tmap_amve) {
+      tmap_amve_prop_index = static_cast<uint16_t>(ipco_box->append_child_box(m_tmap_amve) + 1);
+    }
+    if (m_tmap_ndwt) {
+      tmap_ndwt_prop_index = static_cast<uint16_t>(ipco_box->append_child_box(m_tmap_ndwt) + 1);
+    }
+  }
+
   auto ipma_box = std::make_shared<Box_ipma>();
   file->set_ipma_box(ipma_box);
   ipma_box->add_property_for_item_ID(1, Box_ipma::PropertyAssociation{true, uint16_t(1)});
@@ -1545,7 +1665,42 @@ Error Box_mini::create_expanded_boxes(class HeifFile* file)
   if (hdr_ndwt_prop_index) {
     ipma_box->add_property_for_item_ID(1, Box_ipma::PropertyAssociation{false, hdr_ndwt_prop_index});
   }
-  // TODO: gainmap (tmap) HDR metadata expansion is still missing.
+
+  // Gain map item (id 4): codec config, ispe, pixi, colour, auxC, hdrgm.
+  if (m_gainmap_flag) {
+    if (gainmap_codec_prop_index) {
+      ipma_box->add_property_for_item_ID(4, Box_ipma::PropertyAssociation{true, gainmap_codec_prop_index});
+    }
+    ipma_box->add_property_for_item_ID(4, Box_ipma::PropertyAssociation{true, gainmap_ispe_prop_index});
+    ipma_box->add_property_for_item_ID(4, Box_ipma::PropertyAssociation{false, gainmap_pixi_prop_index});
+    ipma_box->add_property_for_item_ID(4, Box_ipma::PropertyAssociation{true, gainmap_colr_prop_index});
+    if (gainmap_icc_prop_index) {
+      ipma_box->add_property_for_item_ID(4, Box_ipma::PropertyAssociation{true, gainmap_icc_prop_index});
+    }
+    ipma_box->add_property_for_item_ID(4, Box_ipma::PropertyAssociation{true, gainmap_auxc_prop_index});
+    if (gainmap_hdrgm_prop_index) {
+      ipma_box->add_property_for_item_ID(4, Box_ipma::PropertyAssociation{false, gainmap_hdrgm_prop_index});
+    }
+
+    // tmap derived item (id 3): ispe of the output (base) size plus its
+    // alternate-rendition HDR metadata, all non-essential.
+    ipma_box->add_property_for_item_ID(3, Box_ipma::PropertyAssociation{false, uint16_t(2)});
+    if (tmap_clli_prop_index) {
+      ipma_box->add_property_for_item_ID(3, Box_ipma::PropertyAssociation{false, tmap_clli_prop_index});
+    }
+    if (tmap_mdcv_prop_index) {
+      ipma_box->add_property_for_item_ID(3, Box_ipma::PropertyAssociation{false, tmap_mdcv_prop_index});
+    }
+    if (tmap_cclv_prop_index) {
+      ipma_box->add_property_for_item_ID(3, Box_ipma::PropertyAssociation{false, tmap_cclv_prop_index});
+    }
+    if (tmap_amve_prop_index) {
+      ipma_box->add_property_for_item_ID(3, Box_ipma::PropertyAssociation{false, tmap_amve_prop_index});
+    }
+    if (tmap_ndwt_prop_index) {
+      ipma_box->add_property_for_item_ID(3, Box_ipma::PropertyAssociation{false, tmap_ndwt_prop_index});
+    }
+  }
 
   // Append irot/imir (only as needed) and associate them with the items.
   // mini's orientation field uses standard EXIF orientation values 1..8,
@@ -1584,6 +1739,41 @@ Error Box_mini::create_expanded_boxes(class HeifFile* file)
     alpha_item.extents.push_back(alpha_item_extent);
     iloc_box->append_item(alpha_item);
   }
+  if (m_gainmap_flag && get_gainmap_item_data_size() != 0) {
+    Box_iloc::Item gainmap_item;
+    gainmap_item.item_ID = 4;
+    gainmap_item.base_offset = 0;
+    gainmap_item.data_reference_index = 0;
+    Box_iloc::Extent gainmap_item_extent;
+    gainmap_item_extent.offset = get_gainmap_item_data_offset();
+    gainmap_item_extent.length = get_gainmap_item_data_size();
+    gainmap_item.extents.push_back(gainmap_item_extent);
+    iloc_box->append_item(gainmap_item);
+  }
+  // The tmap derived item (id 3) stores the gain map metadata as its data:
+  // a leading version byte followed by the ISO/IEC 21496-1 payload. This
+  // mirrors what an 'hdrgm' item property carries and lets readers obtain
+  // the metadata even when they only follow the derived item.
+  if (m_gainmap_flag && m_gainmap_metadata.size() != 0) {
+    std::vector<uint8_t> tmap_data;
+    tmap_data.reserve(1 + m_gainmap_metadata.size());
+    tmap_data.push_back(ISO21496_SUPPORTED_VERSION);
+    tmap_data.insert(tmap_data.end(), m_gainmap_metadata.begin(), m_gainmap_metadata.end());
+
+    Box_iloc::Item tmap_item;
+    tmap_item.item_ID = 3;
+    // Inline data is carried in an 'idat' box, which requires construction
+    // method 1 (the iloc writer then selects version >= 1 automatically).
+    tmap_item.construction_method = 1;
+    tmap_item.base_offset = 0;
+    tmap_item.data_reference_index = 0;
+    Box_iloc::Extent tmap_extent;
+    tmap_extent.data = std::move(tmap_data);
+    tmap_extent.length = static_cast<uint32_t>(tmap_extent.data.size());
+    tmap_extent.offset = 0;
+    tmap_item.extents.push_back(std::move(tmap_extent));
+    iloc_box->append_item(tmap_item);
+  }
   if (get_exif_flag()) {
     Box_iloc::Item exif_item;
     exif_item.item_ID = 6;
@@ -1613,9 +1803,16 @@ Error Box_mini::create_expanded_boxes(class HeifFile* file)
   if (get_alpha_item_data_size() != 0) {
     iref_box->add_references(2, fourcc("auxl"), to_items);
   }
-  // TODO: if alpha prem
-  // TODO: if gainmap flag && item 4
-  // TODO: if gainmap flag && !item 4
+  // ISO/IEC 21496-1: the 'tmap' derived item (id 3) references the base image
+  // (id 1) and the gain map image (id 4) through a two-entry 'dimg' reference.
+  // The gain map image is additionally an auxiliary of the base image.
+  if (m_gainmap_flag) {
+    std::vector<uint32_t> tmap_refs = {1, 4};
+    iref_box->add_references(3, fourcc("dimg"), tmap_refs);
+    if (get_gainmap_item_data_size() != 0) {
+      iref_box->add_references(4, fourcc("auxl"), to_items);
+    }
+  }
   if (get_exif_flag()) {
     iref_box->add_references(6, fourcc("cdsc"), to_items);
   }
@@ -1735,7 +1932,9 @@ bool Box_mini::can_convert_to_mini(const HeifFile* file, std::string& out_reason
     if (id == primary_id) continue;
 
     uint32_t type = file->get_item_type_4cc(id);
-    if (type == fourcc("grid") || type == fourcc("iovl") || type == fourcc("iden")) {
+    // A 'tmap' derived image (ISO/IEC 21496-1) is supported by the mini
+    // bitstream's gain map fields, so it must not be rejected here.
+    if ((type == fourcc("grid") || type == fourcc("iovl") || type == fourcc("iden"))) {
       out_reason = "derived image items (grid/overlay/identity) not supported in mini";
       return false;
     }
@@ -2125,6 +2324,154 @@ std::shared_ptr<Box_mini> Box_mini::create_from_heif_file(HeifFile* file)
   if (cclv_box) mini->set_cclv(cclv_box);
   if (amve_box) mini->set_amve(amve_box);
   if (ndwt_box) mini->set_ndwt(ndwt_box);
+
+  // --- ISO/IEC 21496-1 gain map: locate the 'tmap' derived item and its
+  // two 'dimg' references (base image, gain map image). ---
+  heif_item_id tmap_id = 0;
+  heif_item_id gainmap_id = 0;
+  if (iref) {
+    for (auto id : item_ids) {
+      if (file->get_item_type_4cc(id) != fourcc("tmap")) {
+        continue;
+      }
+      auto refs = iref->get_references(id, fourcc("dimg"));
+      if (refs.size() == 2 && refs[0] == primary_id) {
+        tmap_id = id;
+        gainmap_id = refs[1];
+        break;
+      }
+    }
+  }
+
+  if (tmap_id != 0 && gainmap_id != 0) {
+    mini->set_gainmap_flag(true);
+    mini->set_hdr_flag(true);
+
+    // Gain map item properties: ispe, pixi, colr, codec config, hdrgm.
+    std::vector<std::shared_ptr<Box>> gain_props;
+    file->get_properties(gainmap_id, gain_props);
+
+    std::shared_ptr<Box_ispe> gain_ispe;
+    std::shared_ptr<Box_pixi> gain_pixi;
+    std::shared_ptr<Box_colr> gain_colr_nclx;
+    std::shared_ptr<Box_colr> gain_colr_icc;
+    std::shared_ptr<Box> gain_codec_config;
+    std::shared_ptr<Box_hdrgm> hdrgm;
+    std::shared_ptr<Box_clli> t_clli;
+    std::shared_ptr<Box_mdcv> t_mdcv;
+    std::shared_ptr<Box_cclv> t_cclv;
+    std::shared_ptr<Box_amve> t_amve;
+    std::shared_ptr<Box_ndwt> t_ndwt;
+
+    for (auto& prop : gain_props) {
+      if (auto p = std::dynamic_pointer_cast<Box_ispe>(prop)) {
+        gain_ispe = p;
+      }
+      else if (auto p = std::dynamic_pointer_cast<Box_pixi>(prop)) {
+        gain_pixi = p;
+      }
+      else if (auto p = std::dynamic_pointer_cast<Box_colr>(prop)) {
+        if (p->get_color_profile_type() == fourcc("nclx")) gain_colr_nclx = p;
+        else gain_colr_icc = p;
+      }
+      else if (std::dynamic_pointer_cast<Box_av1C>(prop) || std::dynamic_pointer_cast<Box_hvcC>(prop)) {
+        gain_codec_config = prop;
+      }
+      else if (auto p = std::dynamic_pointer_cast<Box_hdrgm>(prop)) {
+        hdrgm = p;
+      }
+      else if (auto p = std::dynamic_pointer_cast<Box_clli>(prop)) {
+        t_clli = p;
+      }
+      else if (auto p = std::dynamic_pointer_cast<Box_mdcv>(prop)) {
+        t_mdcv = p;
+      }
+      else if (auto p = std::dynamic_pointer_cast<Box_cclv>(prop)) {
+        t_cclv = p;
+      }
+      else if (auto p = std::dynamic_pointer_cast<Box_amve>(prop)) {
+        t_amve = p;
+      }
+      else if (auto p = std::dynamic_pointer_cast<Box_ndwt>(prop)) {
+        t_ndwt = p;
+      }
+    }
+
+    if (gain_ispe) {
+      mini->set_gainmap_width(gain_ispe->get_width());
+      mini->set_gainmap_height(gain_ispe->get_height());
+    }
+    if (gain_pixi) {
+      const int nch = gain_pixi->get_num_channels();
+      mini->set_gainmap_chroma_subsampling(nch == 1 ? 3 : 0);
+      if (nch > 0) {
+        mini->set_gainmap_bit_depth(static_cast<uint8_t>(gain_pixi->get_bits_per_channel(0)));
+      }
+    }
+    if (gain_colr_nclx) {
+      auto nclx = std::dynamic_pointer_cast<const color_profile_nclx>(gain_colr_nclx->get_color_profile());
+      if (nclx) {
+        auto profile = nclx->get_nclx_color_profile();
+        mini->set_gainmap_matrix_coefficients(profile.m_matrix_coefficients);
+        mini->set_gainmap_full_range_flag(profile.m_full_range_flag);
+        mini->set_tmap_explicit_cicp_flag(true);
+        mini->set_tmap_colour_primaries(profile.m_colour_primaries);
+        mini->set_tmap_transfer_characteristics(profile.m_transfer_characteristics);
+        mini->set_tmap_matrix_coefficients(profile.m_matrix_coefficients);
+        mini->set_tmap_full_range_flag(profile.m_full_range_flag);
+      }
+    }
+    if (gain_colr_icc) {
+      auto raw = std::dynamic_pointer_cast<const color_profile_raw>(gain_colr_icc->get_color_profile());
+      if (raw) {
+        mini->set_tmap_icc_flag(true);
+        mini->set_tmap_icc_data(raw->get_data());
+      }
+    }
+    if (gain_codec_config) {
+      mini->set_gainmap_item_codec_config(extract_codec_config_bytes(gain_codec_config));
+    }
+
+    // Gain map coded data from iloc.
+    if (auto iloc = file->get_iloc_box()) {
+      for (auto& item : iloc->get_items()) {
+        if (item.item_ID == gainmap_id) {
+          std::vector<uint8_t> data;
+          for (auto& extent : item.extents) {
+            data.insert(data.end(), extent.data.begin(), extent.data.end());
+          }
+          mini->set_gainmap_item_data(std::move(data));
+          break;
+        }
+      }
+    }
+
+    // Metadata: prefer the 'hdrgm' property; otherwise the tmap item's data
+    // (leading version byte + payload).
+    if (hdrgm) {
+      std::vector<uint8_t> payload;
+      if (auto err = write_gain_map_metadata(hdrgm->get_metadata(), &payload)) {
+        return nullptr;
+      }
+      mini->set_gainmap_metadata(std::move(payload));
+    }
+    else {
+      auto tmapDataResult = file->get_uncompressed_item_data(tmap_id);
+      if (!tmapDataResult.is_error()) {
+        const auto& tmapData = *tmapDataResult;
+        if (tmapData.size() >= 1) {
+          mini->set_gainmap_metadata(std::vector<uint8_t>(tmapData.begin() + 1, tmapData.end()));
+        }
+      }
+    }
+
+    // Alternate-rendition HDR metadata.
+    if (t_clli) mini->set_tmap_clli(t_clli);
+    if (t_mdcv) mini->set_tmap_mdcv(t_mdcv);
+    if (t_cclv) mini->set_tmap_cclv(t_cclv);
+    if (t_amve) mini->set_tmap_amve(t_amve);
+    if (t_ndwt) mini->set_tmap_ndwt(t_ndwt);
+  }
 
   return mini;
 }

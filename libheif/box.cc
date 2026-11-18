@@ -653,6 +653,10 @@ Error Box::read(BitstreamRange& range, std::shared_ptr<Box>* result, const heif_
       box = std::make_shared<Box_ndwt>();
       break;
 
+    case fourcc("hdrgm"):
+      box = std::make_shared<Box_hdrgm>();
+      break;
+
     case fourcc("cmin"):
       box = std::make_shared<Box_cmin>();
       break;
@@ -3067,6 +3071,66 @@ Error Box_ndwt::write(StreamWriter& writer) const
   prepend_header(writer, box_start);
 
   return Error::Ok;
+}
+
+
+Error Box_hdrgm::parse_payload(const std::vector<uint8_t>& payload)
+{
+  return parse_gain_map_metadata(payload, &m_metadata);
+}
+
+
+Error Box_hdrgm::parse(BitstreamRange& range, const heif_security_limits*)
+{
+  size_t remaining = range.get_remaining_bytes();
+  std::vector<uint8_t> payload(remaining);
+  if (remaining > 0 && !range.read(payload.data(), remaining)) {
+    return range.get_error();
+  }
+  return parse_payload(payload);
+}
+
+
+Error Box_hdrgm::write(StreamWriter& writer) const
+{
+  size_t box_start = reserve_box_header_space(writer);
+
+  std::vector<uint8_t> payload;
+  if (Error err = write_gain_map_metadata(m_metadata, &payload)) {
+    return err;
+  }
+  writer.write(payload);
+
+  prepend_header(writer, box_start);
+  return Error::Ok;
+}
+
+
+void Box_hdrgm::dump(std::ostream& sstr, Indent& indent, bool /*full_log*/) const
+{
+  Box::dump(sstr, indent, false);
+
+  sstr << indent << "minimum_version: " << m_metadata.minimum_version << "\n";
+  sstr << indent << "writer_version: " << m_metadata.writer_version << "\n";
+  sstr << indent << "multi_channel: " << m_metadata.multi_channel << "\n";
+  sstr << indent << "use_base_color_space: " << m_metadata.use_base_color_space << "\n";
+  sstr << indent << "nb_channels: " << m_metadata.nb_channels << "\n";
+  sstr << indent << "base_hdr_headroom: " << m_metadata.base_hdr_headroom.num
+       << "/" << m_metadata.base_hdr_headroom.den << "\n";
+  sstr << indent << "alternate_hdr_headroom: " << m_metadata.alternate_hdr_headroom.num
+       << "/" << m_metadata.alternate_hdr_headroom.den << "\n";
+  for (int c = 0; c < m_metadata.nb_channels; c++) {
+    const auto& ch = m_metadata.channels[c];
+    sstr << indent << "channel[" << c << "]:\n";
+    Indent indent2 = indent;
+    indent2++;
+    sstr << indent2 << "gain_map_min: " << ch.gain_map_min.num << "/" << ch.gain_map_min.den << "\n";
+    sstr << indent2 << "gain_map_max: " << ch.gain_map_max.num << "/" << ch.gain_map_max.den << "\n";
+    sstr << indent2 << "gamma: " << ch.gamma.num << "/" << ch.gamma.den << "\n";
+    sstr << indent2 << "base_offset: " << ch.base_offset.num << "/" << ch.base_offset.den << "\n";
+    sstr << indent2 << "alternate_offset: " << ch.alternate_offset.num
+         << "/" << ch.alternate_offset.den << "\n";
+  }
 }
 
 
