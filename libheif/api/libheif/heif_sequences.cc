@@ -560,6 +560,10 @@ void heif_image_set_duration(heif_image* img, uint32_t duration)
 heif_error heif_track_encode_end_of_sequence(heif_track* track,
                                              heif_encoder* encoder)
 {
+  if (track == nullptr) {
+    return heif_error_null_pointer_argument;
+  }
+
   // the input track must be a visual track
 
   auto visual_track = std::dynamic_pointer_cast<Track_Visual>(track->track);
@@ -582,6 +586,10 @@ heif_error heif_track_encode_sequence_image(heif_track* track,
                                             heif_encoder* encoder,
                                             const heif_sequence_encoding_options* sequence_encoding_options)
 {
+  if (track == nullptr || input_image == nullptr || encoder == nullptr) {
+    return heif_error_null_pointer_argument;
+  }
+
   // the input track must be a visual track
 
   auto visual_track = std::dynamic_pointer_cast<Track_Visual>(track->track);
@@ -690,6 +698,10 @@ void heif_raw_sequence_sample_set_duration(heif_raw_sequence_sample* sample, uin
 heif_error heif_track_add_raw_sequence_sample(heif_track* track,
                                               const heif_raw_sequence_sample* sample)
 {
+  if (track == nullptr || sample == nullptr) {
+    return heif_error_null_pointer_argument;
+  }
+
   auto metadata_track = std::dynamic_pointer_cast<Track_Metadata>(track->track);
   if (!metadata_track) {
     return {

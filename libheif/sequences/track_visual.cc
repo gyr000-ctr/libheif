@@ -576,6 +576,36 @@ Error Track_Visual::encode_image(const std::shared_ptr<HeifPixelImage>& image,
     };
   }
 
+  // Reject the frame before any encoder work once the sequence would exceed
+  // the configured frame budget. Track::write_sample_data() enforces the same
+  // limit again when the (possibly reordered) coded samples are appended, so the
+  // invariant holds even if an encoder emits more coded frames than input frames.
+  const auto* limits = m_heif_context->get_security_limits();
+  if (limits->max_sequence_frames > 0 &&
+      m_current_frame_nr >= limits->max_sequence_frames) {
+    return {
+      heif_error_Memory_allocation_error,
+      heif_suberror_Security_limit_exceeded,
+      "Security limit for maximum number of sequence frames exceeded"
+    };
+  }
+
+  // All frames of one visual track share a single sample entry and an encoder
+  // instance configured from the first frame, so later frames must match its
+  // dimensions. The fixed-size encoder plugins (x264/x265/aom/...) already check
+  // this, but the check belongs at this level so that codecs without a plugin
+  // check (e.g. the uncompressed codec) fail with the same distinguishable
+  // error instead of writing a sample entry that contradicts its frames.
+  if (m_configured_width != 0 &&
+      (image->get_width() != m_configured_width ||
+       image->get_height() != m_configured_height)) {
+    return {
+      heif_error_Invalid_input,
+      heif_suberror_Unspecified,
+      "All frames of a sequence must have the size of the first frame"
+    };
+  }
+
   m_image_class = input_class;
 
 
@@ -744,6 +774,14 @@ Error Track_Visual::encode_image(const std::shared_ptr<HeifPixelImage>& image,
   assert(colorConvertedImage->get_height() == image->get_height());
   m_width = static_cast<uint16_t>(colorConvertedImage->get_width());
   m_height = static_cast<uint16_t>(colorConvertedImage->get_height());
+
+  // The first accepted frame pins the dimensions every later frame is checked
+  // against. Color conversion never changes the geometry, so the converted
+  // dimensions are the same as the input dimensions used in the check above.
+  if (m_configured_width == 0) {
+    m_configured_width = colorConvertedImage->get_width();
+    m_configured_height = colorConvertedImage->get_height();
+  }
 
   // --- encode image
 

@@ -67,6 +67,13 @@ public:
 private:
   uint16_t m_width = 0;
   uint16_t m_height = 0;
+
+  // Dimensions of the first encoded frame, which configure the encoder and pin
+  // the sample entry. Zero means no frame has been encoded yet. Every later
+  // frame must match these dimensions.
+  uint32_t m_configured_width = 0;
+  uint32_t m_configured_height = 0;
+
   heif_image_input_class m_image_class;
 
   uintptr_t m_current_frame_nr = 0;

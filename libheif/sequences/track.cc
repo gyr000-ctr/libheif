@@ -978,6 +978,22 @@ Error Track::write_sample_data(const std::vector<uint8_t>& raw_data, uint32_t sa
                                bool is_sync_sample,
                                const heif_tai_timestamp_packet* tai, const std::optional<std::string>& gimi_contentID)
 {
+  // Enforce the sequence-frame limit on the write path as well. Without this,
+  // an encoder could append samples without bound and only fail (or silently
+  // overflow the 32-bit sample counters) when the file is written or read back.
+  // This mirrors the parse-side checks in seq_boxes.cc and uses the same error
+  // code/subcode so callers cannot distinguish "too many frames" from any other
+  // security-limit failure by accident, but can identify it deliberately.
+  const auto* limits = m_heif_context->get_security_limits();
+  if (limits->max_sequence_frames > 0 &&
+      m_stsz->num_samples() >= limits->max_sequence_frames) {
+    return {
+      heif_error_Memory_allocation_error,
+      heif_suberror_Security_limit_exceeded,
+      "Security limit for maximum number of sequence frames exceeded"
+    };
+  }
+
   m_chunk_data.insert(m_chunk_data.end(), raw_data.begin(), raw_data.end());
 
   m_stsc->increase_samples_in_chunk(1);
